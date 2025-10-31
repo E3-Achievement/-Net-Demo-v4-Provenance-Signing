@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ΨNet Demo v4: Provenance & Signing</title>
+    <style>
+        :root {
+            --primary-color: #0d1117; --secondary-color: #161b22; --border-color: #30363d;
+            --text-color: #c9d1d9; --text-secondary-color: #8b949e; --accent-color: #58a6ff;
+            --code-bg: #1e242c; --pre-bg: #0d1117; --pre-border: #30363d;
+            --success-color: #2da44e; --warning-color: #f0b72f; --error-color: #f85149;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            line-height: 1.6; background-color: var(--primary-color); color: var(--text-color);
+            margin: 0; padding: 0; display: flex; justify-content: center;
+        }
+        .container { max-width: 900px; margin: 20px; padding: 20px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--secondary-color); }
+        h1, h2, h3, h4 { border-bottom: 2px solid var(--border-color); padding-bottom: 8px; margin-top: 24px; }
+        h4 { font-size: 1.1em; border-bottom-width: 1px; }
+        pre { background-color: var(--pre-bg); border: 1px solid var(--pre-border); border-radius: 6px; padding: 16px; overflow-x: auto; color: var(--text-color); }
+        code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; background-color: var(--code-bg); padding: .2em .4em; margin: 0; font-size: 85%; border-radius: 6px; }
+        button { background-color: var(--success-color); color: white; padding: 10px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 10px; margin-top: 5px; }
+        button:hover { opacity: 0.9; }
+        button:disabled { background-color: var(--border-color); cursor: not-allowed; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 8px; background-color: var(--secondary-color); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-color); box-sizing: border-box; }
+        #exportBtn { background-color: var(--accent-color); } #clearBtn { background-color: var(--error-color); }
+        #signing-section { margin-top: 2rem; padding: 1rem; border: 1px dashed var(--accent-color); border-radius: 8px; }
+        #key-status { margin-top: 10px; padding: 10px; background-color: var(--primary-color); border-radius: 4px; font-family: monospace; font-size: 0.9em; word-wrap: break-word; }
+        .thread-header { display: flex; justify-content: space-between; align-items: center; }
+        .thread-header #thread-score { font-size: 1.1em; font-weight: bold; color: var(--accent-color); }
+        .node-card { background-color: var(--secondary-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 15px; margin-bottom: 10px; position: relative; }
+        .node-card .id { font-family: monospace; font-size: 0.8em; color: var(--text-secondary-color); }
+        .node-card .content { margin-top: 5px; white-space: pre-wrap; }
+        .node-card .edge-info { font-style: italic; color: var(--accent-color); margin-top: 10px; border-top: 1px solid var(--border-color); padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ΨNet Demo v4: Provenance & Signing</h1>
+        
+        <div id="demo">
+            <h2>Thread Builder</h2>
+            <div class="form-group">
+                <label for="node-content">Node Content (Text)</label>
+                <textarea id="node-content" rows="4" placeholder="Enter the text content of the node..."></textarea>
+            </div>
+            <div class="form-group">
+                 <label for="node-author">Author Handle</label>
+                <input type="text" id="node-author" placeholder="@author_handle">
+            </div>
+            <div class="form-group">
+                <label for="parent-select">Parent Node (for branching)</label>
+                <select id="parent-select"><option value="">-- Latest Node --</option></select>
+            </div>
+            <div class="form-group">
+                <label for="edge-type">Relationship to Parent Node</label>
+                <select id="edge-type"><option value="continues">Continues</option><option value="corrects">Corrects</option><option value="synthesizes">Synthesizes</option><option value="references">References</option></select>
+            </div>
+            <button onclick="addNode()">Add Node</button>
+            <button onclick="undo()">Undo</button>
+            <button onclick="redo()">Redo</button>
+            <button id="clearBtn" onclick="clearThread()">Clear Thread</button>
+            <hr style="border-color: var(--border-color); margin: 20px 0;">
+            <button id="exportBtn" onclick="exportThread(false)">Export Unsigned JSON</button>
+            <div class="thread-header">
+                <h3>Current Thread</h3>
+                <div id="thread-score">Coherence Score: 0.0</div>
+            </div>
+            <div id="thread-visualization"><p>Your thread will appear here.</p></div>
+        </div>
+
+        <div id="signing-section">
+            <h2>Provenance & Signing</h2>
+            <h4>1. Generate & Manage Keys</h4>
+            <button id="generateKeysBtn" onclick="generateAndStoreKeys()">Generate Session Keys</button>
+            <button id="exportPrivateKeyBtn" style="display:none; background-color: var(--warning-color);" onclick="exportPrivateKey()">Export Private Key (SAVE SECURELY)</button>
+            <div id="key-status">Status: No keys generated. Signing is disabled.</div>
+
+            <h4>2. Sign & Export</h4>
+            <button id="signAndExportBtn" onclick="exportThread(true)" disabled>Sign & Export Thread</button>
+            
+            <h4>3. Verify a Signed File</h4>
+            <input type="file" id="verifyFileInput" accept=".json">
+            <button id="verifyBtn" onclick="handleVerifyFile()">Verify File</button>
+        </div>
+    </div>
+
+    <script>
+        // --- State and Constants ---
+        let currentThread = { slug: "local-demo-thread", nodes: [], edges: [], coherenceScore: 0.0 };
+        const appState = { storageKey: 'psiNetDemoThread' };
+        const HISTORY_LIMIT = 50;
+        const history = { past: [], future: [] };
+        let signingKeys = null; // Will hold { keyPair, pubJwk, privKey }
+
+        // --- Hashing and UUID Primitives ---
+        const makeUUID = () => {
+            if (crypto && crypto.randomUUID) return crypto.randomUUID();
+            const bytes = crypto.getRandomValues(new Uint8Array(16));
+            bytes[6] = (bytes[6] & 0x0f) | 0x40;
+            bytes[8] = (bytes[8] & 0x3f) | 0x80;
+            const toHex = (b) => b.toString(16).padStart(2, '0');
+            return [...bytes].map(toHex).join('').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+        };
+        const simpleHash = async (str) => {
+            const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+            const hashHex = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+            return `hash://${hashHex}`;
+        };
+
+        // --- WebCrypto Signing & Verification ---
+        const SIGNING_ALGORITHM = { name: "ECDSA", namedCurve: "P-256" };
+        const SIGN_PARAMS = { name: "ECDSA", hash: { name: "SHA-256" } };
+
+        async function generateAndStoreKeys() {
+            try {
+                const keyPair = await crypto.subtle.generateKey(SIGNING_ALGORITHM, true, ["sign", "verify"]);
+                const pubJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+                signingKeys = { keyPair, pubJwk, privKey: keyPair.privateKey };
+
+                document.getElementById('key-status').textContent = `Keys generated! Public Key (JWK): ${JSON.stringify(pubJwk)}`;
+                document.getElementById('signAndExportBtn').disabled = false;
+                document.getElementById('exportPrivateKeyBtn').style.display = 'inline-block';
+                alert('Ephemeral keys generated for this session. They will be lost on page refresh.');
+            } catch (err) {
+                console.error("Key generation failed:", err);
+                alert("Error: Could not generate keys. Your browser might not support WebCrypto API or is in a non-secure context (requires HTTPS).");
+            }
+        }
+
+        async function signPayload(privateKey, payloadStr) {
+            const data = new TextEncoder().encode(payloadStr);
+            const signature = await crypto.subtle.sign(SIGN_PARAMS, privateKey, data);
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(signature)));
+        }
+
+        async function verifySignature(pubJwk, signatureB64, payloadStr) {
+            try {
+                const publicKey = await crypto.subtle.importKey("jwk", pubJwk, SIGNING_ALGORITHM, true, ["verify"]);
+                const data = new TextEncoder().encode(payloadStr);
+                const signature = Uint8Array.from(atob(signatureB64), c => c.charCodeAt(0));
+                return await crypto.subtle.verify(SIGN_PARAMS, publicKey, signature, data);
+            } catch (err) {
+                console.error("Verification failed:", err);
+                return false;
+            }
+        }
+
+        async function handleVerifyFile() {
+            const fileInput = document.getElementById('verifyFileInput');
+            if (fileInput.files.length === 0) { alert('Please select a file to verify.'); return; }
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const payload = JSON.parse(event.target.result);
+                    if (!payload.signature || !payload.signature.signer_pub_jwk || !payload.thread) {
+                        throw new Error("File is missing signature or thread data.");
+                    }
+                    const threadString = JSON.stringify(payload.thread, null, 2);
+                    const isValid = await verifySignature(payload.signature.signer_pub_jwk, payload.signature.value, threadString);
+
+                    if (isValid) {
+                        alert('✅ SUCCESS: Signature is valid! The thread has not been tampered with.');
+                    } else {
+                        alert('❌ FAILURE: Signature is invalid! The thread may have been altered or the signature is incorrect.');
+                    }
+                } catch (e) { alert(`Error processing file: ${e.message}`); }
+            };
+            reader.readAsText(file);
+        }
+
+        function exportPrivateKey() {
+            if (!signingKeys) { alert("No keys to export."); return; }
+            crypto.subtle.exportKey("jwk", signingKeys.privKey).then(jwk => {
+                const jsonString = JSON.stringify(jwk, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = 'psinet-private-key.jwk'; a.click(); URL.revokeObjectURL(url);
+                alert("Private key downloaded. KEEP THIS FILE SECURE. Anyone with this file can sign messages as you.");
+            }).catch(err => console.error("Could not export key:", err));
+        }
+
+        // --- Coherence Scoring ---
+        function scoreNode(node) {
+            const w_d = 1.2, w_c = 2.0;
+            const d_x = node.features.recursionDepth || 0;
+            const c_x = node.features.correctionType === 'peer' ? 1 : 0;
+            const S = w_d * Math.log(1 + d_x) + w_c * c_x;
+            return Number(S.toFixed(4));
+        }
+        function recomputeThreadScore() {
+            const totalScore = currentThread.nodes.reduce((sum, n) => sum + (n.score || 0), 0);
+            currentThread.coherenceScore = Number(totalScore.toFixed(4));
+            document.getElementById('thread-score').textContent = `Coherence Score: ${currentThread.coherenceScore}`;
+        }
+
+        // --- State Management (Undo/Redo & Persistence) ---
+        function snapshot() {
+            history.past.push(JSON.stringify(currentThread));
+            if (history.past.length > HISTORY_LIMIT) history.past.shift();
+            history.future = [];
+        }
+        function undo() {
+            if (history.past.length === 0) return;
+            history.future.push(JSON.stringify(currentThread));
+            currentThread = JSON.parse(history.past.pop());
+            saveThread(); renderThread();
+        }
+        function redo() {
+            if (history.future.length === 0) return;
+            history.past.push(JSON.stringify(currentThread));
+            currentThread = JSON.parse(history.future.pop());
+            saveThread(); renderThread();
+        }
+        async function validateThreadIntegrity(thread) {
+            const results = [];
+            for (const n of (thread.nodes || [])) {
+                if (!n.integrity) { results.push({ id: n.id, ok: false, expected: 'N/A', actual: 'missing' }); continue; }
+                const digest = await simpleHash(JSON.stringify({ id: n.id, timestamp: n.timestamp, content: n.content }));
+                results.push({ id: n.id, ok: digest === n.integrity, expected: digest, actual: n.integrity });
+            }
+            return results;
+        }
+        function saveThread() {
+            localStorage.setItem(appState.storageKey, JSON.stringify(currentThread));
+        }
+        async function loadThread() {
+            const savedThread = localStorage.getItem(appState.storageKey);
+            if (savedThread) {
+                const parsed = JSON.parse(savedThread);
+                const issues = await validateThreadIntegrity(parsed);
+                const badNodes = issues.filter(r => !r.ok);
+                if (badNodes.length > 0) {
+                    console.warn(`ΨNet Integrity Warning: ${badNodes.length} node(s) failed validation.`, badNodes);
+                    alert(`Warning: ${badNodes.length} node(s) failed integrity checks. Data may be corrupted. Check console.`);
+                }
+                currentThread = parsed;
+                history.past = []; history.future = [];
+            }
+        }
+
+        // --- Core Application & DOM Logic ---
+        async function addNode() {
+            snapshot();
+            const contentText = document.getElementById('node-content').value;
+            const authorHandle = document.getElementById('node-author').value;
+            if (!contentText || !authorHandle) { alert("Please provide content and an author handle."); return; }
+            
+            const newNode = {
+                id: await simpleHash(contentText + authorHandle + Date.now()),
+                author: { handle: authorHandle },
+                timestamp: new Date().toISOString(),
+                content: { text: contentText },
+                features: { recursionDepth: 0, correctionType: document.getElementById('edge-type').value === 'corrects' ? 'peer' : 'none' }
+            };
+            newNode.integrity = await simpleHash(JSON.stringify({ id: newNode.id, timestamp: newNode.timestamp, content: newNode.content }));
+
+            const parentId = document.getElementById('parent-select').value;
+            const parentNode = parentId ? currentThread.nodes.find(n => n.id === parentId) : (currentThread.nodes[currentThread.nodes.length - 1] || null);
+
+            if (parentNode) {
+                newNode.features.recursionDepth = (parentNode.features.recursionDepth || 0) + 1;
+                currentThread.edges.push({
+                    id: `edge-${makeUUID()}`,
+                    type: document.getElementById('edge-type').value,
+                    from: parentNode.id,
+                    to: newNode.id
+                });
+            }
+            
+            newNode.score = scoreNode(newNode);
+            currentThread.nodes.push(newNode);
+            
+            saveThread();
+            renderThread();
+            document.getElementById('node-content').value = '';
+            document.getElementById('node-author').value = '';
+        }
+
+        function renderThread() {
+            const vizContainer = document.getElementById('thread-visualization');
+            const parentSelect = document.getElementById('parent-select');
+            vizContainer.innerHTML = '';
+            while (parentSelect.options.length > 1) { parentSelect.remove(1); }
+
+            if (currentThread.nodes.length === 0) {
+                vizContainer.innerHTML = '<p>Your thread will appear here as you add nodes.</p>';
+            } else {
+                currentThread.nodes.forEach(node => {
+                    const card = document.createElement('div');
+                    card.className = 'node-card';
+
+                    const idLine = document.createElement('div');
+                    idLine.className = 'id';
+                    idLine.textContent = `ID: ${node.id.substring(0, 24)}... | Score: ${node.score}`;
+
+                    const authorLine = document.createElement('div');
+                    authorLine.innerHTML = `<strong>Author:</strong> `;
+                    const authorHandleSpan = document.createElement('span');
+                    authorHandleSpan.textContent = node.author.handle;
+                    authorLine.appendChild(authorHandleSpan);
+
+                    const contentDiv = document.createElement('div');
+                    contentDiv.className = 'content';
+                    contentDiv.textContent = node.content.text;
+
+                    card.append(idLine, authorLine, contentDiv);
+                    
+                    const edge = currentThread.edges.find(e => e.to === node.id);
+                    if (edge) {
+                        const fromNode = currentThread.nodes.find(n => n.id === edge.from) || { id: 'unknown' };
+                        const edgeInfo = document.createElement('div');
+                        edgeInfo.className = 'edge-info';
+                        edgeInfo.innerHTML = `<strong>${edge.type}</strong> from node: `;
+                        const fromSpan = document.createElement('span');
+                        fromSpan.textContent = fromNode.id.substring(7, 22) + '...';
+                        edgeInfo.appendChild(fromSpan);
+                        card.appendChild(edgeInfo);
+                    }
+                    vizContainer.appendChild(card);
+
+                    const option = document.createElement('option');
+                    option.value = node.id;
+                    option.textContent = `Node (${node.id.substring(7, 22)}...) - "${node.content.text.substring(0, 20)}..."`;
+                    parentSelect.appendChild(option);
+                });
+            }
+            recomputeThreadScore();
+        }
+
+        async function exportThread(isSigned = false) {
+            if (currentThread.nodes.length === 0) { alert("Thread is empty."); return; }
+            if (isSigned && !signingKeys) { alert("Cannot sign. Please generate keys first."); return; }
+
+            recomputeThreadScore();
+            const exportPayload = {
+                exported_at: new Date().toISOString(),
+                exported_by: `ΨNet Demo v4`,
+                thread: currentThread,
+            };
+
+            if (isSigned) {
+                const threadString = JSON.stringify(currentThread, null, 2);
+                exportPayload.signature = {
+                    algorithm: "ECDSA-P256-SHA256",
+                    value: await signPayload(signingKeys.privKey, threadString),
+                    signer_pub_jwk: signingKeys.pubJwk
+                };
+            }
+
+            const finalJsonString = JSON.stringify(exportPayload, null, 2);
+            const blob = new Blob([finalJsonString], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `psinet-thread-${isSigned ? 'signed' : 'unsigned'}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function clearThread() {
+            snapshot();
+            if (confirm("Are you sure you want to clear the entire thread?")) {
+                currentThread = { slug: "local-demo-thread", nodes: [], edges: [], coherenceScore: 0.0 };
+                saveThread(); renderThread();
+            }
+        }
+
+        // --- Initialization & Event Listeners ---
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadThread();
+            renderThread();
+
+            let storageDebounceTimer = null;
+            window.addEventListener('storage', (e) => {
+                if (e.key !== appState.storageKey) return;
+                if (storageDebounceTimer) clearTimeout(storageDebounceTimer);
+                storageDebounceTimer = setTimeout(async () => {
+                    await loadThread();
+                    renderThread();
+                }, 250);
+            });
+        });
+    </script>
+</body>
+</html>
